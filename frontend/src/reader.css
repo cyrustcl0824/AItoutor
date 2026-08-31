@@ -1,0 +1,6 @@
+.sentence-panel select{width:100%;min-height:44px;border:2px solid #e7e1d7;border-radius:12px;padding:8px}
+.play-all{width:100%;margin:12px 0}
+.sentence-list{display:grid;gap:8px;max-height:55vh;overflow:auto}
+.sentence-list button{text-align:left;display:flex;gap:10px;align-items:flex-start;background:#faf8f4;color:#2d3436}
+.sentence-list button span{background:#6c5ce7;color:white;border-radius:50%;min-width:24px;height:24px;text-align:center}
+.sentence-list .active{background:#fff0c7;outline:3px solid #fdcb6e}

@@ -1,0 +1,40 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file: .env
+    restart: unless-stopped
+    volumes:
+      - tutor_data:/app/data
+      - textbook_pages:/data/textbook-pages
+      - audio_cache:/data/audio-cache
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/ready')"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      backend: { condition: service_healthy }
+      frontend: { condition: service_started }
+volumes:
+  tutor_data:
+  textbook_pages:
+  audio_cache:
+  caddy_data:
+  caddy_config:
