@@ -1,5 +1,6 @@
 FROM node:22-alpine AS build
 WORKDIR /workspace
+ENV BACKEND_URL=http://backend:8000
 COPY package.json package-lock.json ./
 COPY packages/core/package.json packages/core/package.json
 COPY frontend/package.json frontend/package.json

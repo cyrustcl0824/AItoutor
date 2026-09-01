@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./styles.css";
+import "./features.css";
 import { Providers } from "@/components/Providers";
 import { Shell } from "@/components/Shell";
 import { PwaRegistration } from "@/components/PwaRegistration";

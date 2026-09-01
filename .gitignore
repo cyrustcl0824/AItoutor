@@ -9,6 +9,7 @@ backend/tests/test.db*
 frontend/node_modules/
 node_modules/
 frontend/.next/
+frontend/.next-dev/
 frontend/dist/
 frontend/*.tsbuildinfo
 curriculum/assets/

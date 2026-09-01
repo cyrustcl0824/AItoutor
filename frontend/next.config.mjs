@@ -3,7 +3,8 @@ const nextConfig = {
   output: "standalone",
   transpilePackages: ["@cstf/core"],
   async rewrites() {
-    return process.env.BACKEND_URL ? [{ source: "/api/:path*", destination: `${process.env.BACKEND_URL}/api/:path*` }] : [];
+    const backend = process.env.BACKEND_URL || "http://127.0.0.1:8000";
+    return [{ source: "/api/:path*", destination: `${backend}/api/:path*` }];
   },
 };
 export default nextConfig;

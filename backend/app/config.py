@@ -1,4 +1,5 @@
 from functools import lru_cache
+import json
 from pathlib import Path
 
 from pydantic import field_validator
@@ -26,6 +27,8 @@ class Settings(BaseSettings):
     access_token_minutes: int = 15
     refresh_token_days: int = 30
     max_audio_bytes: int = 10 * 1024 * 1024
+    runtime_config_path: Path = Path("./data/config/ai.env")
+    resource_root: Path = Path("./data/resources")
 
     @field_validator("cors_origins", mode="before")
     @classmethod
@@ -35,4 +38,23 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    settings = Settings()
+    path = settings.runtime_config_path
+    if path.is_file():
+        fields = {
+            "AI_PROVIDER": "ai_provider", "DASHSCOPE_API_KEY": "dashscope_api_key",
+            "DASHSCOPE_BASE_URL": "dashscope_base_url", "DASHSCOPE_CHAT_MODEL": "dashscope_chat_model",
+            "DASHSCOPE_ASR_MODEL": "dashscope_asr_model", "DASHSCOPE_TTS_MODEL": "dashscope_tts_model",
+            "DASHSCOPE_TTS_VOICE": "dashscope_tts_voice", "DASHSCOPE_TTS_URL": "dashscope_tts_url",
+        }
+        for raw in path.read_text(encoding="utf-8").splitlines():
+            if not raw or raw.lstrip().startswith("#") or "=" not in raw:
+                continue
+            key, value = raw.split("=", 1)
+            if key.strip() in fields:
+                value = value.strip()
+                if value.startswith(('"', "'")):
+                    try: value = json.loads(value)
+                    except Exception: value = value[1:-1]
+                setattr(settings, fields[key.strip()], value)
+    return settings

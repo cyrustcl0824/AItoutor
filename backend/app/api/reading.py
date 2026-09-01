@@ -1,10 +1,14 @@
 from datetime import datetime
 
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
+from ..config import get_settings
 from ..dependencies import get_current_user, owned_student
 from ..models import AudioAsset, ReadingProgress, Story, StorySentence, Subject, User
 from ..schemas import ReadingContentProgressIn
@@ -33,7 +37,17 @@ def stories(grade: int | None = None, _: User = Depends(get_current_user), db: S
 def story(story_id: str, _: User = Depends(get_current_user), db: Session = Depends(get_db)):
     item = enabled_story(db, story_id)
     sentences = db.scalars(select(StorySentence).where(StorySentence.story_id == item.id).order_by(StorySentence.position)).all()
-    return {"id": item.id, "title": item.title, "grade": item.grade, "level": item.level, "sentences": [{"id": sentence.id, "position": sentence.position, "text": sentence.text, "translation": sentence.translation, "duration_ms": sentence.duration_ms, "audio_url": f"/api/v1/audio/{sentence.audio_asset_id}" if sentence.audio_asset_id else None} for sentence in sentences]}
+    return {"id": item.id, "title": item.title, "grade": item.grade, "level": item.level, "image_url": f"/api/v1/reading/stories/{item.id}/image" if item.cover_path else None, "sentences": [{"id": sentence.id, "position": sentence.position, "text": sentence.text, "translation": sentence.translation, "duration_ms": sentence.duration_ms, "audio_url": f"/api/v1/audio/{sentence.audio_asset_id}" if sentence.audio_asset_id else None} for sentence in sentences]}
+
+
+@router.get("/stories/{story_id}/image")
+def story_image(story_id: str, _: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    item = enabled_story(db, story_id)
+    path = Path(item.cover_path).resolve() if item.cover_path else None
+    root = get_settings().resource_root.resolve()
+    if not path or not path.is_file() or (path != root and root not in path.parents):
+        raise HTTPException(status_code=404, detail="Story image not found")
+    return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=86400"})
 
 
 @router.post("/story-sentences/{sentence_id}/speech")

@@ -1,0 +1,5 @@
+.voice-state{font-size:12px;font-weight:900;padding:8px 12px;border-radius:999px;background:#ece9ff;color:#5847c5}
+.state-listening{background:#e6faef;color:#167947}.state-speaking{background:#fff0c7;color:#815d00}
+.compact-input{width:20px;min-height:20px}.grow{flex:1}.admin-section{margin-top:20px}
+.sync-control,.job-progress{margin-top:16px}.job-progress progress{width:100%}
+.story-cover{display:block;width:100%;max-height:440px;object-fit:cover;border-radius:18px;margin:12px 0 18px}

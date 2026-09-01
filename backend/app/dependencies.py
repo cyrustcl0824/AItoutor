@@ -1,4 +1,4 @@
-from fastapi import Depends, Request
+from fastapi import Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from .database import get_db
@@ -17,3 +17,8 @@ def owned_student(db: Session, user: User, student_id: str) -> Student:
         raise HTTPException(status_code=404, detail="Student not found")
     return student
 
+
+def require_admin(user: User = Depends(get_current_user)) -> User:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Administrator access required")
+    return user

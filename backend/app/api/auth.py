@@ -18,7 +18,8 @@ def register(payload: RegisterRequest, response: Response, db: Session = Depends
     family = Family(name=payload.family_name)
     db.add(family)
     db.flush()
-    user = User(family_id=family.id, email=payload.email.lower(), password_hash=hash_password(payload.password))
+    role = "admin" if not db.scalar(select(User.id).limit(1)) else "parent"
+    user = User(family_id=family.id, email=payload.email.lower(), password_hash=hash_password(payload.password), role=role)
     db.add(user)
     db.commit()
     set_auth_cookies(response, user)
@@ -57,4 +58,3 @@ def logout(response: Response, user: User = Depends(get_current_user), db: Sessi
 @router.get("/me", response_model=UserOut)
 def me(user: User = Depends(get_current_user)):
     return user
-

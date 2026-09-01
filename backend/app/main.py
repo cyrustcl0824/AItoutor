@@ -6,10 +6,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import select, text
 
-from .api import audio, auth, curriculum, devices, learning, practice, reading, students, textbooks, tutor
+from .api import admin, audio, auth, curriculum, devices, learning, practice, reading, students, textbooks, tutor
 from .config import get_settings
 from .database import Base, SessionLocal, engine
-from .models import Subject
+from .models import ResourceSyncJob, Subject
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -36,6 +36,9 @@ def startup():
         for code, name, enabled in [("english", "英语", True), ("chinese", "语文", False), ("math", "数学", False)]:
             if not db.scalar(select(Subject).where(Subject.code == code)):
                 db.add(Subject(code=code, name=name, enabled=enabled))
+        for job in db.scalars(select(ResourceSyncJob).where(ResourceSyncJob.status.in_(["queued", "running"]))):
+            job.status = "interrupted"
+            job.stage = "interrupted"
         db.commit()
 
 
@@ -51,5 +54,5 @@ def ready():
     return {"status": "ready"}
 
 
-for router in [auth.router, students.router, tutor.router, audio.router, curriculum.router, practice.router, reading.router, textbooks.router, learning.router, devices.router]:
+for router in [auth.router, students.router, tutor.router, audio.router, admin.router, curriculum.router, practice.router, reading.router, textbooks.router, learning.router, devices.router]:
     app.include_router(router, prefix="/api/v1")

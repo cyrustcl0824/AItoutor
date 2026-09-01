@@ -19,6 +19,10 @@ npm install
 npm --workspace ai-tutor-web run dev
 ```
 
+打开 `http://localhost:3000`。空数据库中第一个注册账号是管理员；现有数据库升级时，最早创建的账号会迁移为管理员。管理员登录后可在底部“配置”或 `/admin/settings` 中配置百炼、测试 Chat → TTS → ASR，并同步教材资源。
+
+AI 老师页保留文字聊天，并提供“开始语音对话”。用户主动授权麦克风后，浏览器会在约 1.2 秒静音时自动提交当前一句，服务端一次完成 ASR → Tutor → TTS，再自动恢复监听。
+
 API 文档位于 `http://localhost:8000/docs`。生产部署说明见 `deploy/README.md`。
 
 ## 教材资产

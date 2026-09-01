@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
 from app.database import Base, SessionLocal, engine  # noqa: E402
-from app.models import (Course, Exercise, KnowledgePoint, Lesson, Passage, PassageSentence,
+from app.models import (AudioAsset, Course, Exercise, KnowledgePoint, Lesson, Passage, PassageSentence,
                         Story, StorySentence, Subject, TextbookEdition, TextbookPage, Unit)  # noqa: E402
 
 PINNED_COMMIT = "7824f0b4cd2ff8cac24ecca80864019b37ed7ba6"
@@ -32,7 +32,10 @@ def slug(value: str) -> str:
 def infer_grade_semester(name: str) -> tuple[int, str]:
     chinese = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6}
     match = re.search(r"([一二三四五六])年级", name)
-    return (chinese.get(match.group(1), 0) if match else 0, "上册" if "上册" in name else "下册" if "下册" in name else "未知")
+    if match:
+        return chinese[match.group(1)], "上册" if "上册" in name else "下册" if "下册" in name else "未知"
+    release = re.search(r"(?:^|-)g([1-6])(up|down)(?:$|[/\\])", name.lower())
+    return (int(release.group(1)), "上册" if release.group(2) == "up" else "下册") if release else (0, "未知")
 
 
 def knowledge_code(grade: int, semester: str, unit_number: int, name: str) -> str:
@@ -206,6 +209,152 @@ def import_stories(db, source_root: Path, subject: Subject, stats: dict) -> None
                         stats["story_sentences_created"] += 1
         except Exception as exc:
             stats["damaged_stories"].append({"path": str(path), "error": str(exc)})
+
+
+def _release_book_identity(book_id: str) -> tuple[int, str]:
+    match = re.search(r"-g([1-6])(up|down)$", book_id)
+    if not match:
+        return 0, "未知"
+    return int(match.group(1)), "上册" if match.group(2) == "up" else "下册"
+
+
+def _bundled_audio(db, audio_root: Path | None, reference: str | None) -> AudioAsset | None:
+    if not audio_root or not reference:
+        return None
+    relative = reference.lstrip("/")
+    candidates = [audio_root / relative, audio_root / relative.removeprefix("audio/")]
+    path = next((item for item in candidates if item.is_file()), None)
+    if not path:
+        return None
+    cache_key = Path(relative).stem
+    asset = db.scalar(select(AudioAsset).where(AudioAsset.cache_key == cache_key))
+    if not asset:
+        asset = AudioAsset(cache_key=cache_key, provider="ChinaTextbookStudyFree", voice="bundled", mime_type="audio/ogg", file_path=str(path.resolve()))
+        db.add(asset)
+        db.flush()
+    elif asset.file_path != str(path.resolve()):
+        asset.file_path = str(path.resolve())
+    return asset
+
+
+def import_release_data(db, data_root: Path, subjects: dict[str, Subject], stats: dict, audio_root: Path | None = None, story_image_root: Path | None = None) -> None:
+    """Import the normalized v1.1.0 ``data.zip`` layout idempotently."""
+    books_root = data_root / "books"
+    if not books_root.is_dir():
+        return
+    subject = subjects["english"]
+    for book_root in sorted(books_root.glob("english-g*")):
+        outline_path = book_root / "outline.json"
+        if not outline_path.is_file():
+            continue
+        try:
+            outline = json.loads(outline_path.read_text(encoding="utf-8"))
+            book_id = book_root.name
+            grade, semester = _release_book_identity(book_id)
+            course = db.scalar(select(Course).where(Course.subject_id == subject.id, Course.grade == grade, Course.semester == semester))
+            if not course:
+                course = Course(subject_id=subject.id, external_id=f"release:{book_id}", name=outline.get("textbook", book_id), grade=grade, semester=semester, metadata_json={"book_id": book_id, "release": "v1.1.0-assets"})
+                db.add(course); db.flush(); stats["courses_created"] += 1
+            units: dict[int, Unit] = {}
+            for unit_data in outline.get("units", []):
+                number = int(unit_data["unit_number"])
+                unit = db.scalar(select(Unit).where(Unit.course_id == course.id, Unit.position == number))
+                if not unit:
+                    unit = Unit(course_id=course.id, external_id=f"release:{book_id}:unit:{number}", title=unit_data["title"], position=number)
+                    db.add(unit); db.flush(); stats["units_created"] += 1
+                units[number] = unit
+                for point in unit_data.get("knowledge_points", []):
+                    name = point["name"]
+                    kp = db.scalar(select(KnowledgePoint).where(KnowledgePoint.subject_id == subject.id, KnowledgePoint.name == name))
+                    if not kp:
+                        kp = KnowledgePoint(subject_id=subject.id, code=knowledge_code(grade, semester, number, name), name=name, difficulty=point.get("difficulty", 1), metadata_json={"description": point.get("description", ""), "question_types": point.get("question_types", [])})
+                        db.add(kp); stats["knowledge_points_created"] += 1
+            db.flush()
+            lessons_by_external: dict[str, Lesson] = {}
+            for summary in outline.get("lessons", []):
+                number = int(summary.get("unitNumber") or 1); unit = units.get(number)
+                if not unit:
+                    continue
+                position = int(summary.get("kpIndex", 0)) + 1
+                lesson = db.scalar(select(Lesson).where(Lesson.unit_id == unit.id, Lesson.position == position))
+                if not lesson:
+                    lesson = Lesson(unit_id=unit.id, external_id=f"release:{summary['id']}", title=summary.get("title") or unit.title, position=position); db.add(lesson); db.flush()
+                else:
+                    lesson.title = summary.get("title") or lesson.title
+                lessons_by_external[str(summary["id"])] = lesson
+            for path in sorted((book_root / "lessons").glob("*.json")):
+                record = json.loads(path.read_text(encoding="utf-8")); number = int(record.get("unitNumber") or 1)
+                unit = units.get(number); lesson = lessons_by_external.get(str(record.get("id")))
+                if not lesson:
+                    stats["unmatched_quizzes"] += len(record.get("questions", [])); continue
+                for question in record.get("questions", []):
+                    external_id = f"release:{book_id}:{path.stem}:q{question['id']}"
+                    exercise = db.scalar(select(Exercise).where(Exercise.external_id == external_id)) or db.scalar(select(Exercise).where(Exercise.lesson_id == lesson.id, Exercise.prompt == question.get("question", ""), ~Exercise.external_id.like("release:%")))
+                    point_name = question.get("knowledge_point") or record.get("title") or "综合练习"
+                    kp = db.scalar(select(KnowledgePoint).where(KnowledgePoint.subject_id == subject.id, KnowledgePoint.name == point_name))
+                    if not kp:
+                        kp = KnowledgePoint(subject_id=subject.id, code=knowledge_code(grade, semester, number, point_name), name=point_name, difficulty=question.get("difficulty", 1)); db.add(kp); db.flush(); stats["knowledge_points_created"] += 1
+                    values = dict(lesson_id=lesson.id, knowledge_point_id=kp.id, prompt=question.get("question", ""), answer=str(question.get("answer", "")), kind=question.get("type", "short_answer"), options=question.get("options") or [], explanation=question.get("explanation", ""), score=question.get("score", 1), source=f"ChinaTextbookStudyFree@{PINNED_COMMIT}", difficulty=question.get("difficulty", 1), metadata_json={"source_file": str(path.relative_to(data_root))})
+                    if exercise:
+                        for key, value in values.items(): setattr(exercise, key, value)
+                        stats["exercises_updated"] += 1
+                    else:
+                        db.add(Exercise(external_id=external_id, **values)); stats["exercises_created"] += 1
+            _import_release_passages(db, book_root, course, units, audio_root, stats)
+            _import_release_stories(db, book_root, subject, grade, audio_root, story_image_root, stats)
+        except Exception as exc:
+            stats["damaged_passages"].append({"path": str(book_root), "error": str(exc)})
+
+
+def _import_release_passages(db, book_root: Path, course: Course, units: dict[int, Unit], audio_root: Path | None, stats: dict) -> None:
+    path = book_root / "passages.json"
+    if not path.is_file() or not units:
+        return
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    edition = db.scalar(select(TextbookEdition).where(TextbookEdition.subject_id == course.subject_id, TextbookEdition.grade == course.grade, TextbookEdition.semester == course.semester))
+    for record in payload.get("passages", []):
+        number = int(record.get("unitNumber") or min(units))
+        unit = units.get(number) or units[min(units)]
+        lesson = db.scalar(select(Lesson).where(Lesson.unit_id == unit.id).order_by(Lesson.position))
+        passage = db.scalar(select(Passage).where(Passage.external_id == record["id"]))
+        if not passage:
+            passage = Passage(lesson_id=lesson.id, external_id=record["id"], title=record.get("title") or lesson.title); db.add(passage); db.flush()
+        page_number = record.get("pdfPage") or record.get("pageHint")
+        page = db.scalar(select(TextbookPage).where(TextbookPage.edition_id == edition.id, TextbookPage.position == int(page_number))) if edition and page_number else None
+        for position, line in enumerate(record.get("sentences", [])):
+            item = db.scalar(select(PassageSentence).where(PassageSentence.passage_id == passage.id, PassageSentence.position == position))
+            text_value = line.get("text", "") if isinstance(line, dict) else str(line)
+            if not item:
+                item = PassageSentence(passage_id=passage.id, position=position, text=text_value); db.add(item); stats["sentences_created"] += 1
+            item.text = text_value; item.page_id = page.id if page else item.page_id
+            asset = _bundled_audio(db, audio_root, line.get("audio") if isinstance(line, dict) else None)
+            if asset: item.audio_asset_id = asset.id
+
+
+def _import_release_stories(db, book_root: Path, subject: Subject, grade: int, audio_root: Path | None, story_image_root: Path | None, stats: dict) -> None:
+    path = book_root / "stories.json"
+    if not path.is_file():
+        return
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    for record in payload.get("stories", []):
+        story = db.scalar(select(Story).where(Story.external_id == record["id"]))
+        if not story:
+            story = Story(subject_id=subject.id, external_id=record["id"], title=record.get("title", "English Story"), grade=grade, level=int(record.get("level", 1)), source=f"ChinaTextbookStudyFree@{PINNED_COMMIT}"); db.add(story); db.flush(); stats["stories_created"] += 1
+        else:
+            story.grade = grade
+        if story_image_root:
+            candidates = [story_image_root / "story-images" / book_root.name / f"{record['id']}.jpg", story_image_root / book_root.name / f"{record['id']}.jpg"]
+            image = next((candidate for candidate in candidates if candidate.is_file()), None)
+            if image:
+                story.cover_path = str(image.resolve())
+        for position, line in enumerate(record.get("sentences", [])):
+            item = db.scalar(select(StorySentence).where(StorySentence.story_id == story.id, StorySentence.position == position))
+            text_value = line.get("text", "") if isinstance(line, dict) else str(line)
+            if not item:
+                item = StorySentence(story_id=story.id, position=position, text=text_value); db.add(item); stats["story_sentences_created"] += 1
+            item.text = text_value
+            asset = _bundled_audio(db, audio_root, line.get("audio") if isinstance(line, dict) else None)
+            if asset: item.audio_asset_id = asset.id
 
 
 def main() -> None:

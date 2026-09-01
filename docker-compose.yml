@@ -9,6 +9,7 @@ services:
       - tutor_data:/app/data
       - textbook_pages:/data/textbook-pages
       - audio_cache:/data/audio-cache
+      - resource_assets:/data/resources
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/ready')"]
       interval: 20s
@@ -40,5 +41,6 @@ volumes:
   tutor_data:
   textbook_pages:
   audio_cache:
+  resource_assets:
   caddy_data:
   caddy_config:

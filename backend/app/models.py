@@ -340,3 +340,29 @@ class Device(Base, TimestampMixin):
     state: Mapped[str] = mapped_column(String(30), default="IDLE")
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     metadata_json: Mapped[dict] = mapped_column("metadata", JSON, default=dict)
+
+
+class ResourceSyncJob(Base, TimestampMixin):
+    __tablename__ = "resource_sync_jobs"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
+    requested_by_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    status: Mapped[str] = mapped_column(String(30), default="queued", index=True)
+    stage: Mapped[str] = mapped_column(String(30), default="queued")
+    current_package: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    downloaded_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    total_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    packages_json: Mapped[list] = mapped_column("packages", JSON, default=list)
+    result_json: Mapped[dict] = mapped_column("result", JSON, default=dict)
+    error: Mapped[str] = mapped_column(Text, default="")
+    cancel_requested: Mapped[bool] = mapped_column(Boolean, default=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class AdminAuditLog(Base):
+    __tablename__ = "admin_audit_logs"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    action: Mapped[str] = mapped_column(String(80), index=True)
+    changed_fields: Mapped[list] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

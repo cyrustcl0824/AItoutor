@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 
 class ORMModel(BaseModel):
@@ -92,6 +92,38 @@ class ReadingContentProgressIn(BaseModel):
     sentence_position: int = Field(default=0, ge=0)
     page_id: str | None = None
     completed: bool = False
+
+
+class AISettingsUpdate(BaseModel):
+    provider: Literal["mock", "dashscope"]
+    api_key: str | None = Field(default=None, min_length=1, max_length=500)
+    clear_api_key: bool = False
+    base_url: str = Field(min_length=8, max_length=500)
+    chat_model: str = Field(min_length=1, max_length=100)
+    asr_model: str = Field(min_length=1, max_length=100)
+    tts_model: str = Field(min_length=1, max_length=100)
+    tts_voice: str = Field(min_length=1, max_length=100)
+    tts_url: str = Field(min_length=8, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_key_action(self):
+        if self.api_key is not None:
+            self.api_key = self.api_key.strip()
+            if not self.api_key:
+                raise ValueError("API Key cannot be blank")
+        if self.api_key and self.clear_api_key:
+            raise ValueError("API Key cannot be set and cleared at the same time")
+        for field in ("base_url", "chat_model", "asr_model", "tts_model", "tts_voice", "tts_url"):
+            value = getattr(self, field).strip()
+            if not value:
+                raise ValueError(f"{field} cannot be blank")
+            setattr(self, field, value)
+        return self
+
+
+class ResourceSyncRequest(BaseModel):
+    packages: list[Literal["data", "data_source", "textbook_pages", "story_images", "audio"]]
+    acknowledge_copyright: bool
 
 
 class TutorDecision(BaseModel):

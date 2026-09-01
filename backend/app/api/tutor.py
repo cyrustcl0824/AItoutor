@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -9,7 +9,11 @@ from ..dependencies import get_current_user, owned_student
 from ..models import ConversationSession, Course, LearningSession, Lesson, Subject, Unit, User
 from ..learning_context import build_learning_context
 from ..schemas import SessionStart, TutorDecision, TutorMessage
+from ..schemas import LearningContextIn
 from ..tutor import handle_message
+from ..ai.providers import ProviderError, get_provider
+from .audio import ALLOWED_AUDIO, ensure_speech
+from ..config import get_settings
 
 router = APIRouter(tags=["tutor"])
 
@@ -55,3 +59,38 @@ async def tutor_message(payload: TutorMessage, user: User = Depends(get_current_
     student = owned_student(db, user, session.student_id)
     context = build_learning_context(db, student, payload.learning_context, session.lesson_id)
     return await handle_message(db, session, student, payload.text, context)
+
+
+@router.post("/tutor/voice-turn")
+async def tutor_voice_turn(
+    session_id: str = Form(...), audio: UploadFile = File(...), language: str = Form("en"),
+    learning_context: str | None = Form(None), user: User = Depends(get_current_user), db: Session = Depends(get_db),
+):
+    session = db.get(LearningSession, session_id)
+    if not session or session.ended_at:
+        raise HTTPException(status_code=404, detail="Active session not found")
+    student = owned_student(db, user, session.student_id)
+    if audio.content_type not in ALLOWED_AUDIO:
+        raise HTTPException(status_code=415, detail="Unsupported audio type")
+    data = await audio.read(get_settings().max_audio_bytes + 1)
+    if not data or len(data) > get_settings().max_audio_bytes:
+        raise HTTPException(status_code=413, detail="Audio must be between 1 byte and 10 MB")
+    requested = None
+    if learning_context:
+        try: requested = LearningContextIn.model_validate_json(learning_context)
+        except Exception as exc: raise HTTPException(status_code=422, detail="Invalid learning context") from exc
+    context = build_learning_context(db, student, requested, session.lesson_id)
+    try:
+        transcript = (await get_provider().transcribe(data, audio.content_type, language)).strip()
+    except ProviderError as exc:
+        raise HTTPException(status_code=503, detail="Speech recognition is temporarily unavailable") from exc
+    if not transcript:
+        raise HTTPException(status_code=422, detail="No recognizable speech")
+    decision = await handle_message(db, session, student, transcript, context)
+    audio_result, audio_error = None, None
+    try:
+        asset = await ensure_speech(db, decision.reply)
+        audio_result = {"id": asset.id, "url": f"/api/v1/audio/{asset.id}", "duration_ms": asset.duration_ms}
+    except Exception:
+        audio_error = {"code": "tts_unavailable", "message": "Voice playback is temporarily unavailable"}
+    return {"transcript": transcript, "decision": decision.model_dump(), "audio": audio_result, "audio_error": audio_error}
