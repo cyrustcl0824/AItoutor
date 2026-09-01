@@ -19,15 +19,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: '22', cache: npm, cache-dependency-path: frontend/package-lock.json }
+        with: { node-version: '22', cache: npm, cache-dependency-path: package-lock.json }
       - run: npm ci
-        working-directory: frontend
-      - run: npm run typecheck && npm test && npm run build
-        working-directory: frontend
+      - run: npm run test:core
+      - run: npm --workspace ai-tutor-web run type-check
+      - run: npm --workspace ai-tutor-web test -- --passWithNoTests
+      - run: npm run build:web
   containers:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: cp .env.example .env
       - run: docker compose build
-

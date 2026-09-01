@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import select, text
 
-from .api import audio, auth, curriculum, devices, learning, students, textbooks, tutor
+from .api import audio, auth, curriculum, devices, learning, practice, reading, students, textbooks, tutor
 from .config import get_settings
 from .database import Base, SessionLocal, engine
 from .models import Subject
@@ -51,5 +51,5 @@ def ready():
     return {"status": "ready"}
 
 
-for router in [auth.router, students.router, tutor.router, audio.router, curriculum.router, textbooks.router, learning.router, devices.router]:
+for router in [auth.router, students.router, tutor.router, audio.router, curriculum.router, practice.router, reading.router, textbooks.router, learning.router, devices.router]:
     app.include_router(router, prefix="/api/v1")

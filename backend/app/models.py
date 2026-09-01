@@ -102,6 +102,10 @@ class Exercise(Base):
     prompt: Mapped[str] = mapped_column(Text)
     answer: Mapped[str] = mapped_column(Text)
     kind: Mapped[str] = mapped_column(String(30), default="short_answer")
+    options: Mapped[list] = mapped_column(JSON, default=list)
+    explanation: Mapped[str] = mapped_column(Text, default="")
+    score: Mapped[int] = mapped_column(Integer, default=1)
+    source: Mapped[str] = mapped_column(String(200), default="")
     difficulty: Mapped[int] = mapped_column(Integer, default=1)
     metadata_json: Mapped[dict] = mapped_column("metadata", JSON, default=dict)
 
@@ -111,6 +115,7 @@ class LearningSession(Base, TimestampMixin):
     id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
     student_id: Mapped[str] = mapped_column(ForeignKey("students.id"), index=True)
     subject_id: Mapped[str] = mapped_column(ForeignKey("subjects.id"), index=True)
+    lesson_id: Mapped[str | None] = mapped_column(ForeignKey("lessons.id"), nullable=True, index=True)
     mode: Mapped[str] = mapped_column(String(30))
     started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -156,6 +161,7 @@ class Mistake(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
     student_id: Mapped[str] = mapped_column(ForeignKey("students.id"), index=True)
     subject_id: Mapped[str] = mapped_column(ForeignKey("subjects.id"), index=True)
+    exercise_id: Mapped[str | None] = mapped_column(ForeignKey("exercises.id"), nullable=True, index=True)
     knowledge_point_id: Mapped[str | None] = mapped_column(ForeignKey("knowledge_points.id"), nullable=True)
     content: Mapped[str] = mapped_column(Text)
     mistake_type: Mapped[str] = mapped_column(String(80), default="general")
@@ -163,6 +169,24 @@ class Mistake(Base):
     first_seen_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     resolved: Mapped[bool] = mapped_column(Boolean, default=False)
+    srs_box: Mapped[int] = mapped_column(Integer, default=1)
+    review_correct_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    next_review_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    graduated: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class LessonProgress(Base):
+    __tablename__ = "lesson_progress"
+    __table_args__ = (UniqueConstraint("student_id", "lesson_id", name="uq_lesson_progress"),)
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
+    student_id: Mapped[str] = mapped_column(ForeignKey("students.id"), index=True)
+    lesson_id: Mapped[str] = mapped_column(ForeignKey("lessons.id"), index=True)
+    best_accuracy: Mapped[float] = mapped_column(Float, default=0.0)
+    stars: Mapped[int] = mapped_column(Integer, default=0)
+    completion_count: Mapped[int] = mapped_column(Integer, default=0)
+    first_completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class Mastery(Base):
@@ -267,15 +291,43 @@ class PassageSentence(Base):
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
+class Story(Base):
+    __tablename__ = "stories"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
+    subject_id: Mapped[str] = mapped_column(ForeignKey("subjects.id"), index=True)
+    external_id: Mapped[str] = mapped_column(String(150), unique=True)
+    title: Mapped[str] = mapped_column(String(200))
+    grade: Mapped[int] = mapped_column(Integer)
+    level: Mapped[int] = mapped_column(Integer, default=1)
+    cover_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    source: Mapped[str] = mapped_column(String(200), default="")
+
+
+class StorySentence(Base):
+    __tablename__ = "story_sentences"
+    __table_args__ = (UniqueConstraint("story_id", "position", name="uq_story_sentence"),)
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
+    story_id: Mapped[str] = mapped_column(ForeignKey("stories.id"), index=True)
+    audio_asset_id: Mapped[str | None] = mapped_column(ForeignKey("audio_assets.id"), nullable=True)
+    position: Mapped[int] = mapped_column(Integer)
+    text: Mapped[str] = mapped_column(Text)
+    translation: Mapped[str] = mapped_column(Text, default="")
+    image_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
 class ReadingProgress(Base):
     __tablename__ = "reading_progress"
-    __table_args__ = (UniqueConstraint("student_id", "passage_id", name="uq_reading_progress"),)
+    __table_args__ = (UniqueConstraint("student_id", "content_kind", "content_id", name="uq_reading_content_progress"),)
     id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
     student_id: Mapped[str] = mapped_column(ForeignKey("students.id"), index=True)
-    passage_id: Mapped[str] = mapped_column(ForeignKey("passages.id"), index=True)
+    passage_id: Mapped[str | None] = mapped_column(ForeignKey("passages.id"), nullable=True, index=True)
+    content_kind: Mapped[str] = mapped_column(String(20), default="passage")
+    content_id: Mapped[str] = mapped_column(String, index=True)
     page_id: Mapped[str | None] = mapped_column(ForeignKey("textbook_pages.id"), nullable=True)
     sentence_position: Mapped[int] = mapped_column(Integer, default=0)
     completed: Mapped[bool] = mapped_column(Boolean, default=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
@@ -288,4 +340,3 @@ class Device(Base, TimestampMixin):
     state: Mapped[str] = mapped_column(String(30), default="IDLE")
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     metadata_json: Mapped[dict] = mapped_column("metadata", JSON, default=dict)
-

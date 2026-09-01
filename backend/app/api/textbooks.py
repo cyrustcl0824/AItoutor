@@ -82,9 +82,14 @@ def lesson_reading(lesson_id: str, _: User = Depends(get_current_user), db: Sess
     link = db.scalar(select(LessonPageLink).where(LessonPageLink.lesson_id == lesson_id))
     passage = db.scalar(select(Passage).where(Passage.lesson_id == lesson_id))
     sentences = db.scalars(select(PassageSentence).where(PassageSentence.passage_id == passage.id).order_by(PassageSentence.position)).all() if passage else []
+    page_ids = []
+    if link:
+        start, end = db.get(TextbookPage, link.start_page_id), db.get(TextbookPage, link.end_page_id)
+        if start and end and start.edition_id == end.edition_id:
+            page_ids = list(db.scalars(select(TextbookPage.id).where(TextbookPage.edition_id == start.edition_id, TextbookPage.position.between(start.position, end.position)).order_by(TextbookPage.position)))
     return {
         "lesson": {"id": lesson.id, "title": lesson.title},
-        "page_ids": [link.start_page_id, link.end_page_id] if link else [],
+        "page_ids": page_ids,
         "passage": {"id": passage.id, "title": passage.title} if passage else None,
         "sentences": [{"id": s.id, "position": s.position, "text": s.text, "page_id": s.page_id, "duration_ms": s.duration_ms, "audio_url": f"/api/v1/audio/{s.audio_asset_id}" if s.audio_asset_id else None} for s in sentences],
     }
@@ -118,7 +123,7 @@ def save_progress(passage_id: str, payload: ReadingProgressIn, user: User = Depe
         raise HTTPException(status_code=404, detail="Passage not found")
     progress = db.scalar(select(ReadingProgress).where(ReadingProgress.student_id == payload.student_id, ReadingProgress.passage_id == passage_id))
     if not progress:
-        progress = ReadingProgress(student_id=payload.student_id, passage_id=passage_id)
+        progress = ReadingProgress(student_id=payload.student_id, passage_id=passage_id, content_kind="passage", content_id=passage_id)
         db.add(progress)
     progress.page_id = payload.page_id
     progress.sentence_position = payload.sentence_position

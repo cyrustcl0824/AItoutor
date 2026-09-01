@@ -1,0 +1,10 @@
+{
+  "name": "ai-tutor-workspace",
+  "private": true,
+  "workspaces": ["frontend", "packages/core"],
+  "devDependencies": {"@types/react": "19.0.7", "@types/react-dom": "19.0.3"},
+  "scripts": {
+    "test:core": "npm --workspace @cstf/core test",
+    "build:web": "npm --workspace ai-tutor-web run build"
+  }
+}

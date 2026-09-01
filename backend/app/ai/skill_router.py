@@ -14,7 +14,12 @@ def route_skills(mode: str, text: str) -> list[str]:
         english = "grammar"
     elif mode == "lesson":
         english = "pep-sync"
-    return ["common/socratic-tutor", f"english/{english}"]
+    skills = ["common/socratic-tutor", f"english/{english}"]
+    if mode == "lesson":
+        skills.append("vendor/hermes/primary-english-pep-textbook-sync")
+    if mode == "review":
+        skills.append("vendor/hermes/agent-mistake-review")
+    return skills
 
 
 def load_skills(names: list[str]) -> str:

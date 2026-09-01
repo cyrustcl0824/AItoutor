@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     secret_key: str = "development-only-secret-change-me"
     database_url: str = "sqlite:///./data/tutor.db"
     cookie_secure: bool = False
-    cors_origins: list[str] = ["http://localhost:5173"]
+    cors_origins: list[str] = ["http://localhost:3000"]
     ai_provider: str = "mock"
     dashscope_api_key: str = ""
     dashscope_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"

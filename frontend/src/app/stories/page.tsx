@@ -1,0 +1,4 @@
+"use client";
+import Link from "next/link";import { useQuery } from "@tanstack/react-query";import { api,Student } from "@/lib/api";import { useUiStore } from "@/lib/store";
+type Story={id:string;title:string;grade:number;level:number};
+export default function Stories(){const students=useQuery({queryKey:["students"],queryFn:()=>api<Student[]>("/students")});const student=useUiStore(s=>s.studentId)||students.data?.[0]?.id;const grade=students.data?.find(s=>s.id===student)?.grade;const stories=useQuery({queryKey:["stories",grade],queryFn:()=>api<Story[]>(`/reading/stories?grade=${grade}`),enabled:!!grade});return <><h1>英语分级故事</h1><div className="grid">{stories.data?.map(s=><Link className="card" key={s.id} href={`/stories/${s.id}?student=${student}`}><h2>{s.title}</h2><p className="muted">{s.grade}年级 · Level {s.level}</p></Link>)}{stories.data?.length===0&&<p className="feedback">故事资源尚未导入，可通过固定 Release 数据包补充。</p>}</div></>}

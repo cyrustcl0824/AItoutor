@@ -52,11 +52,46 @@ class StudentOut(ORMModel):
 class SessionStart(BaseModel):
     student_id: str
     mode: Literal["conversation", "vocabulary", "lesson", "review", "speaking", "reading"] = "conversation"
+    lesson_id: str | None = None
+
+
+class LearningContextIn(BaseModel):
+    book_id: str | None = None
+    unit_id: str | None = None
+    lesson_id: str | None = None
+    scenario: Literal["课前预习", "课后作业", "同步巩固", "单元复习", "错题巩固", "期中期末复习"] = "同步巩固"
+    available_minutes: int = Field(default=15, ge=1, le=120)
 
 
 class TutorMessage(BaseModel):
     session_id: str
     text: str = Field(min_length=1, max_length=1000)
+    learning_context: LearningContextIn | None = None
+
+
+class PracticeStart(BaseModel):
+    student_id: str
+    lesson_id: str
+
+
+class PracticeAnswer(BaseModel):
+    exercise_id: str
+    answer: str = Field(max_length=4000)
+
+
+class PracticeFinish(BaseModel):
+    session_id: str
+
+
+class ReviewAnswer(BaseModel):
+    correct: bool
+
+
+class ReadingContentProgressIn(BaseModel):
+    student_id: str
+    sentence_position: int = Field(default=0, ge=0)
+    page_id: str | None = None
+    completed: bool = False
 
 
 class TutorDecision(BaseModel):
@@ -80,4 +115,3 @@ class DeviceHeartbeat(BaseModel):
     device_id: str
     state: Literal["IDLE", "LISTENING", "UPLOADING", "THINKING", "SPEAKING"]
     metadata: dict = Field(default_factory=dict)
-

@@ -6,7 +6,8 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..dependencies import get_current_user, owned_student
-from ..models import ConversationSession, LearningSession, Subject, User
+from ..models import ConversationSession, Course, LearningSession, Lesson, Subject, Unit, User
+from ..learning_context import build_learning_context
 from ..schemas import SessionStart, TutorDecision, TutorMessage
 from ..tutor import handle_message
 
@@ -19,7 +20,13 @@ def start_session(payload: SessionStart, user: User = Depends(get_current_user),
     english = db.scalar(select(Subject).where(Subject.code == "english", Subject.enabled.is_(True)))
     if not english:
         raise HTTPException(status_code=404, detail="English is disabled")
-    session = LearningSession(student_id=student.id, subject_id=english.id, mode=payload.mode)
+    lesson = db.get(Lesson, payload.lesson_id) if payload.lesson_id else None
+    if payload.lesson_id:
+        unit = db.get(Unit, lesson.unit_id) if lesson else None
+        course = db.get(Course, unit.course_id) if unit else None
+        if not lesson or not course or course.subject_id != english.id or course.grade != student.grade:
+            raise HTTPException(status_code=404, detail="Lesson not available for this student")
+    session = LearningSession(student_id=student.id, subject_id=english.id, lesson_id=lesson.id if lesson else None, mode=payload.mode)
     db.add(session)
     db.flush()
     conversation = ConversationSession(learning_session_id=session.id)
@@ -46,5 +53,5 @@ async def tutor_message(payload: TutorMessage, user: User = Depends(get_current_
     if not session or session.ended_at:
         raise HTTPException(status_code=404, detail="Active session not found")
     student = owned_student(db, user, session.student_id)
-    return await handle_message(db, session, student, payload.text)
-
+    context = build_learning_context(db, student, payload.learning_context, session.lesson_id)
+    return await handle_message(db, session, student, payload.text, context)

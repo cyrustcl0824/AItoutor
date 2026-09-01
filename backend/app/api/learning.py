@@ -6,7 +6,9 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..dependencies import get_current_user, owned_student
-from ..models import Attempt, KnowledgePoint, LearningSession, Mastery, Mistake, ReviewTask, User
+from ..models import Attempt, Exercise, KnowledgePoint, LearningSession, Mastery, Mistake, ReviewTask, User
+from ..practice import review_mistake
+from ..schemas import ReviewAnswer
 
 router = APIRouter(prefix="/learning", tags=["learning"])
 
@@ -32,6 +34,27 @@ def today_review(student_id: str, user: User = Depends(get_current_user), db: Se
     return [{"id": task.id, "knowledge_point": kp.name, "code": kp.code, "due_at": task.due_at} for task, kp in tasks]
 
 
+@router.get("/{student_id}/review/mistakes")
+def due_mistakes(student_id: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    owned_student(db, user, student_id)
+    now = datetime.utcnow()
+    items = db.scalars(select(Mistake).where(Mistake.student_id == student_id, Mistake.graduated.is_(False), (Mistake.next_review_at.is_(None) | (Mistake.next_review_at <= now))).order_by(Mistake.last_seen_at).limit(20)).all()
+    exercises = {item.id: item for item in db.scalars(select(Exercise).where(Exercise.id.in_([m.exercise_id for m in items if m.exercise_id])))} if items else {}
+    return [{"id": m.id, "content": m.content, "box": m.srs_box, "correct_count": m.review_correct_count, "exercise": ({"id": exercises[m.exercise_id].id, "prompt": exercises[m.exercise_id].prompt, "options": exercises[m.exercise_id].options} if m.exercise_id in exercises else None)} for m in items]
+
+
+@router.post("/{student_id}/review/mistakes/{mistake_id}")
+def submit_review(student_id: str, mistake_id: str, payload: ReviewAnswer, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    owned_student(db, user, student_id)
+    mistake = db.scalar(select(Mistake).where(Mistake.id == mistake_id, Mistake.student_id == student_id))
+    if not mistake:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Mistake not found")
+    review_mistake(mistake, payload.correct)
+    db.commit()
+    return {"id": mistake.id, "box": mistake.srs_box, "correct_count": mistake.review_correct_count, "next_review_at": mistake.next_review_at, "graduated": mistake.graduated}
+
+
 @router.get("/{student_id}/weekly-report")
 def weekly_report(student_id: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     owned_student(db, user, student_id)
@@ -41,4 +64,3 @@ def weekly_report(student_id: str, user: User = Depends(get_current_user), db: S
     seconds = db.scalar(select(func.sum(LearningSession.duration_seconds)).where(LearningSession.student_id == student_id, LearningSession.started_at >= since)) or 0
     weak = db.execute(select(Mastery, KnowledgePoint).join(KnowledgePoint).where(Mastery.student_id == student_id).order_by(Mastery.score).limit(5)).all()
     return {"period_days": 7, "attempts": attempt_count, "correct": correct_count, "accuracy": round(correct_count / attempt_count, 3) if attempt_count else 0, "learning_seconds": seconds, "weak_points": [{"name": kp.name, "score": mastery.score} for mastery, kp in weak]}
-
